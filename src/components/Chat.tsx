@@ -25,6 +25,7 @@ import {
   synthesizeCached,
   type VoicevoxSpeaker,
 } from "../lib/voicevox";
+import { translateToEnglish } from "../lib/translate";
 import { Portrait } from "./Portrait";
 import { AffectionMeter } from "./AffectionMeter";
 
@@ -165,6 +166,8 @@ export function Chat({ mode, onExit }: Props) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const ttsAbortRef = useRef<AbortController | null>(null);
   const lastPlayedKeyRef = useRef<string>("");
+  const translatedIdxRef = useRef<Set<number>>(new Set());
+  const translateAbortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const speechAvailable = isSpeechSupported();
 
@@ -244,7 +247,8 @@ export function Chat({ mode, onExit }: Props) {
     [prefs.muted, prefs.speakerId, prefs.voicevoxHost, voicevoxOnline],
   );
 
-  // After a stream completes, auto-play the last assistant line once.
+  // After a stream completes, auto-play the last assistant line once and
+  // fill in any missing [en] subtitle via a fallback translation.
   useEffect(() => {
     if (streaming) return;
     const lastIdx = turns
@@ -255,14 +259,38 @@ export function Chat({ mode, onExit }: Props) {
     const last = turns[lastIdx];
     if (!last.ja) return;
     const key = `${lastIdx}|${last.ja}`;
-    if (lastPlayedKeyRef.current === key) return;
-    void playLine(last.ja, key);
-  }, [streaming, turns, playLine]);
+    if (lastPlayedKeyRef.current !== key) {
+      void playLine(last.ja, key);
+    }
+    if (!last.en && !translatedIdxRef.current.has(lastIdx)) {
+      translatedIdxRef.current.add(lastIdx);
+      translateAbortRef.current?.abort();
+      const ctrl = new AbortController();
+      translateAbortRef.current = ctrl;
+      void (async () => {
+        try {
+          const en = await translateToEnglish(last.ja, last.mood, config, ctrl.signal);
+          if (ctrl.signal.aborted || !en || en === "-") return;
+          setTurns((prev) => {
+            if (prev[lastIdx]?.role !== "assistant") return prev;
+            const copy = [...prev];
+            copy[lastIdx] = { ...copy[lastIdx], en };
+            return copy;
+          });
+        } catch {
+          // ignore — translation is best-effort
+        } finally {
+          if (translateAbortRef.current === ctrl) translateAbortRef.current = null;
+        }
+      })();
+    }
+  }, [streaming, turns, playLine, config]);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
       ttsAbortRef.current?.abort();
+      translateAbortRef.current?.abort();
       audioRef.current?.pause();
     };
   }, []);
@@ -332,10 +360,12 @@ export function Chat({ mode, onExit }: Props) {
   function reset() {
     abortRef.current?.abort();
     ttsAbortRef.current?.abort();
+    translateAbortRef.current?.abort();
     audioRef.current?.pause();
     setTurns([]);
     setAffection(10);
     lastPlayedKeyRef.current = "";
+    translatedIdxRef.current = new Set();
     localStorage.removeItem(STORAGE_KEY);
   }
 
