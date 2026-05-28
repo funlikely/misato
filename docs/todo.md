@@ -22,13 +22,20 @@ Risk: VOICEVOX speakers are licensed per-character — most are free for non-com
 
 Right now `Portrait.tsx` shows a colored emoji on a gradient. Need real art.
 
-Steps:
-1. Decide art direction (commissioned, AI-generated, public domain).
-2. Produce one image per mood: `neutral, happy, teasing, flirty, embarrassed, pouting, excited, sultry`. Transparent PNG, ~512×768.
-3. Drop them in `public/portraits/<mood>.png`.
-4. Replace the emoji `<div>` in `Portrait.tsx` with `<img src={`/portraits/${mood}.png`} />`. Keep the gradient frame as a backdrop.
-5. Add a soft crossfade between mood changes.
-6. Optional: blink / breathing idle animation via a sprite-sheet or simple opacity loop.
+**The planned solution is to pull sprites from [booru-auto-tagger](https://github.com/funlikely/booru-auto-tagger)** rather than hand-curating files per mood. That repo will auto-tag a local image library and serve them via REST:
+
+```
+GET http://localhost:5000/images/random?mood=teasing&clothing=casual&rating=safe
+```
+
+Steps (once booru-auto-tagger has code):
+1. Wait for booru-auto-tagger to ship its API (see its `PLAN.md`).
+2. Add `src/lib/booru.ts` — thin client for `GET /images/random`.
+3. In `Chat.tsx`, when `currentMood` changes, fetch a new image keyed on `mood` (and `clothing` / `rating` derived from scene state in VN mode). Crossfade between portraits.
+4. Cache the URL per mood per session so the portrait doesn't flicker on every reply.
+5. Add a settings toggle for booru host (default `http://localhost:5000`) and fallback to emoji placeholder if the API is unreachable.
+
+Standalone fallback (if you want sprites before booru-auto-tagger exists): produce one transparent PNG per mood (`neutral, happy, teasing, flirty, embarrassed, pouting, excited, sultry`), drop into `public/portraits/<mood>.png`, and swap the emoji `<div>` for `<img>`. Less flexible but works offline without the tagger.
 
 ### Speech input is enabled but unverified in WebView2
 
@@ -56,7 +63,7 @@ Currently `buildStateLine` in `Chat.tsx` hardcodes the scene to "喫茶店 (afte
 - A `Scene` type: `{ location, time, background, mood-color-tint }`.
 - A scene catalog: `cafe-afternoon`, `apartment-night`, `park-walk`, `onsen`, etc.
 - Let Misato change scenes via `[scene:<id>]` tags or explicit choice payloads (e.g. `[choice][scene:apartment-night] 部屋に行く`).
-- Per-scene background image in `public/scenes/<id>.jpg`. Render behind the chat panel with a darken/blur.
+- Per-scene background image. Same booru-auto-tagger backend as sprites — query `GET /images/random?tag=cafe&rating=safe` per scene id. Falls back to bundled images at `public/scenes/<id>.jpg` if the API is offline.
 - Persist current scene in the session.
 
 ### Settings UI / first-run wizard

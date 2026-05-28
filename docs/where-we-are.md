@@ -18,6 +18,13 @@ Misato is a Tauri 2 + React + TS desktop chatbot — Japanese-speaking flirty da
   - `docs/where-we-are.md` (this file).
 - We are currently on `feat/voice-and-subtitles`.
 
+## Sibling project
+
+- **[funlikely/booru-auto-tagger](https://github.com/funlikely/booru-auto-tagger)** — Python CLI + Flask + SQLite + WD-tagger ONNX. Auto-tags a local image dir by posture / body type / clothing / undress / mood, exposes a REST API. **Built specifically to feed Misato her sprites and scene images.** Status: planning-only, no code yet — see its `PLAN.md`.
+- Local checkout at `C:\gitprojects\funlikely\booru-auto-tagger`.
+- When that repo grows code, Misato should call `GET /images/random?mood=...&clothing=...&rating=safe` to pick scene/character images instead of hand-curating sprite PNGs.
+- An earlier orphan branch on misato (`claude/gallant-dijkstra-Zayke`) held that plan; history was preserved into the new repo and the branch was deleted from misato's remote.
+
 ## What the user has done / is doing
 
 Done:
