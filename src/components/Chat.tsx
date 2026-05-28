@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { systemPromptFor } from "../persona/misato";
 import type { Mode } from "../lib/modes";
 import {
@@ -18,6 +18,13 @@ import {
   startRecognition,
   type Recorder,
 } from "../lib/speech";
+import {
+  DEFAULT_VOICEVOX_HOST,
+  listSpeakers,
+  pingVoicevox,
+  synthesizeCached,
+  type VoicevoxSpeaker,
+} from "../lib/voicevox";
 import { Portrait } from "./Portrait";
 import { AffectionMeter } from "./AffectionMeter";
 
@@ -36,6 +43,7 @@ type Props = {
 
 const STORAGE_KEY = "misato.session";
 const PREFS_KEY = "misato.prefs";
+const DEFAULT_SPEAKER_ID = 8; // 春日部つむぎ (テンション高め) — fits genki/playful
 
 type Persisted = {
   mode: Mode;
@@ -46,9 +54,18 @@ type Persisted = {
 type Prefs = {
   showEn: boolean;
   micLang: "ja-JP" | "en-US";
+  muted: boolean;
+  speakerId: number;
+  voicevoxHost: string;
 };
 
-const DEFAULT_PREFS: Prefs = { showEn: true, micLang: "ja-JP" };
+const DEFAULT_PREFS: Prefs = {
+  showEn: true,
+  micLang: "ja-JP",
+  muted: false,
+  speakerId: DEFAULT_SPEAKER_ID,
+  voicevoxHost: DEFAULT_VOICEVOX_HOST,
+};
 
 function loadSession(mode: Mode): Persisted {
   try {
@@ -140,8 +157,14 @@ export function Chat({ mode, onExit }: Props) {
   const [prefs, setPrefs] = useState<Prefs>(() => loadPrefs());
   const [listening, setListening] = useState(false);
   const [interim, setInterim] = useState("");
+  const [speakers, setSpeakers] = useState<VoicevoxSpeaker[]>([]);
+  const [voicevoxOnline, setVoicevoxOnline] = useState<boolean | null>(null);
+  const [audioBusy, setAudioBusy] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const recRef = useRef<Recorder | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const ttsAbortRef = useRef<AbortController | null>(null);
+  const lastPlayedKeyRef = useRef<string>("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const speechAvailable = isSpeechSupported();
 
@@ -160,12 +183,97 @@ export function Chat({ mode, onExit }: Props) {
     });
   }, [turns]);
 
+  // Probe VOICEVOX once on mount; load speaker list if available.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const ok = await pingVoicevox(prefs.voicevoxHost);
+      if (cancelled) return;
+      setVoicevoxOnline(ok);
+      if (!ok) return;
+      try {
+        const list = await listSpeakers(prefs.voicevoxHost);
+        if (cancelled) return;
+        setSpeakers(list);
+        // If the saved speaker isn't in the available list, fall back to first.
+        const ids = new Set(list.flatMap((s) => s.styles.map((st) => st.id)));
+        if (!ids.has(prefs.speakerId) && list[0]) {
+          setPrefs((p) => ({ ...p, speakerId: list[0].styles[0].id }));
+        }
+      } catch {
+        // leave speakers empty
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefs.voicevoxHost]);
+
+  const playLine = useCallback(
+    async (text: string, key: string) => {
+      if (!text.trim() || prefs.muted || !voicevoxOnline) return;
+      ttsAbortRef.current?.abort();
+      const ctrl = new AbortController();
+      ttsAbortRef.current = ctrl;
+      setAudioBusy(true);
+      try {
+        const url = await synthesizeCached(
+          text,
+          prefs.speakerId,
+          prefs.voicevoxHost,
+          ctrl.signal,
+        );
+        if (ctrl.signal.aborted) return;
+        if (!audioRef.current) audioRef.current = new Audio();
+        audioRef.current.src = url;
+        lastPlayedKeyRef.current = key;
+        await audioRef.current.play().catch(() => {
+          // autoplay may be blocked until user interacts; ignored
+        });
+      } catch (e) {
+        if (!ctrl.signal.aborted) {
+          const msg = e instanceof Error ? e.message : String(e);
+          setError(`tts: ${msg}`);
+        }
+      } finally {
+        if (ttsAbortRef.current === ctrl) ttsAbortRef.current = null;
+        setAudioBusy(false);
+      }
+    },
+    [prefs.muted, prefs.speakerId, prefs.voicevoxHost, voicevoxOnline],
+  );
+
+  // After a stream completes, auto-play the last assistant line once.
+  useEffect(() => {
+    if (streaming) return;
+    const lastIdx = turns
+      .map((t, i) => ({ t, i }))
+      .reverse()
+      .find(({ t }) => t.role === "assistant")?.i;
+    if (lastIdx === undefined) return;
+    const last = turns[lastIdx];
+    if (!last.ja) return;
+    const key = `${lastIdx}|${last.ja}`;
+    if (lastPlayedKeyRef.current === key) return;
+    void playLine(last.ja, key);
+  }, [streaming, turns, playLine]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      ttsAbortRef.current?.abort();
+      audioRef.current?.pause();
+    };
+  }, []);
+
   const currentMood: Mood =
     [...turns].reverse().find((t) => t.role === "assistant")?.mood ?? "neutral";
 
   async function send(text: string) {
     if (!text.trim() || streaming) return;
     setError(null);
+    audioRef.current?.pause();
     const userTurn: Turn = { role: "user", ja: text };
     const nextTurns = [...turns, userTurn];
     setTurns(nextTurns);
@@ -176,7 +284,6 @@ export function Chat({ mode, onExit }: Props) {
       role: "system",
       content: systemPromptFor(mode, buildStateLine(mode, affection)),
     };
-    // Build LLM-facing history from displayed ja text (assistant) / user text.
     const history: ChatMessage[] = nextTurns.map((t) => ({
       role: t.role,
       content: t.ja,
@@ -224,8 +331,11 @@ export function Chat({ mode, onExit }: Props) {
 
   function reset() {
     abortRef.current?.abort();
+    ttsAbortRef.current?.abort();
+    audioRef.current?.pause();
     setTurns([]);
     setAffection(10);
+    lastPlayedKeyRef.current = "";
     localStorage.removeItem(STORAGE_KEY);
   }
 
@@ -259,13 +369,18 @@ export function Chat({ mode, onExit }: Props) {
     }
   }
 
+  function replay(idx: number, text: string) {
+    void playLine(text, `replay-${idx}-${Date.now()}`);
+  }
+
   const lastAssistant = [...turns].reverse().find((t) => t.role === "assistant");
-  const composerValue = listening && interim ? input + (input ? " " : "") + interim : input;
+  const composerValue =
+    listening && interim ? input + (input ? " " : "") + interim : input;
 
   return (
     <div className="chat-screen">
       <div className="side">
-        <Portrait mood={currentMood} speaking={streaming} />
+        <Portrait mood={currentMood} speaking={streaming || audioBusy} />
         {(mode === "affection" || mode === "vn") && (
           <AffectionMeter value={affection} />
         )}
@@ -280,6 +395,36 @@ export function Chat({ mode, onExit }: Props) {
             />
             <span>Show English subtitles</span>
           </label>
+          <label className="pref-row">
+            <input
+              type="checkbox"
+              checked={!prefs.muted}
+              onChange={(e) =>
+                setPrefs((p) => ({ ...p, muted: !e.target.checked }))
+              }
+              disabled={!voicevoxOnline}
+            />
+            <span>Voice (VOICEVOX)</span>
+          </label>
+          {voicevoxOnline && speakers.length > 0 && (
+            <label className="pref-row">
+              <span>Speaker</span>
+              <select
+                value={prefs.speakerId}
+                onChange={(e) =>
+                  setPrefs((p) => ({ ...p, speakerId: Number(e.target.value) }))
+                }
+              >
+                {speakers.map((sp) =>
+                  sp.styles.map((st) => (
+                    <option key={st.id} value={st.id}>
+                      {sp.name} ({st.name})
+                    </option>
+                  )),
+                )}
+              </select>
+            </label>
+          )}
           {speechAvailable && (
             <label className="pref-row">
               <span>Mic language</span>
@@ -304,6 +449,7 @@ export function Chat({ mode, onExit }: Props) {
         </div>
         <div className="model-info">
           model: {config.model}
+          {voicevoxOnline === false && <div>voice: VOICEVOX not running</div>}
           {!speechAvailable && <div>mic: not available in this webview</div>}
         </div>
       </div>
@@ -322,6 +468,20 @@ export function Chat({ mode, onExit }: Props) {
               <div className="bubble-ja">{t.ja || "…"}</div>
               {t.role === "assistant" && t.en && prefs.showEn && (
                 <div className="bubble-en">{t.en}</div>
+              )}
+              {t.role === "assistant" && t.ja && voicevoxOnline && (
+                <button
+                  type="button"
+                  className="bubble-replay"
+                  onClick={() => replay(i, t.ja)}
+                  disabled={audioBusy}
+                  title="Replay voice"
+                  aria-label="Replay voice"
+                >
+                  {audioBusy && lastPlayedKeyRef.current.startsWith(`${i}|`)
+                    ? "…"
+                    : "🔊"}
+                </button>
               )}
             </div>
           ))}
