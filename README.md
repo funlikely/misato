@@ -1,6 +1,8 @@
 # みさと / Misato
 
-A Japanese-speaking dating-sim style desktop chatbot. Misato (みさと) is a confident, playful, openly flirtatious adult woman in her late 20s. She'll speak natural casual Japanese by default and switch to English when you do.
+A Japanese-speaking dating-sim style desktop chatbot. Misato (みさと) is a confident, playful, openly flirtatious adult woman in her late 20s. She **always speaks natural casual Japanese** — that's her real voice. Every line is shown with an English subtitle below for you to read along, which you can hide if you don't need it.
+
+You can talk to her by typing **or by speaking** — a mic button in the composer uses the webview's built-in speech recognition (Japanese or English; switchable).
 
 Runs locally with [Ollama](https://ollama.com) — no cloud, no API keys, no logs leaving your machine.
 
@@ -108,21 +110,27 @@ misato/
 
 ### The LLM contract
 
-Misato's system prompt requires every reply to begin with metadata tags:
+Misato's system prompt requires every reply to follow this exact shape:
 
 ```
-[mood:flirty][affection:+2] そういうの好きだなぁ、私。
+[mood:flirty][affection:+2]
+[ja] そういうの好きだなぁ、私。
+[en] Mmh… I kinda like that side of you.
 [choice] もう少し聞かせて
 [choice] 「やめてよ恥ずかしい」
 ```
 
-Tags consumed by the frontend (and stripped from the displayed bubble):
+Tags consumed by the frontend:
 
 | Tag | Where | Used by |
 |---|---|---|
 | `[mood:X]` | always, leading | `Portrait` swaps expression |
 | `[affection:±N]` | affection / vn modes | adjusts meter, -5 to +5 |
+| `[ja] ...` | always | rendered as the main spoken line |
+| `[en] ...` | always | rendered as English subtitle (toggle-able) |
 | `[choice] ...` | vn mode, optional | rendered as branch buttons |
+
+Parsing lives in `src/lib/moods.ts` (`parseMood`, `parseAffectionDelta`, `parseBilingual`) and `src/components/Chat.tsx` (`parseChoices`, `parseAssistant`).
 
 Allowed moods live in `src/lib/moods.ts` (`MOODS`). Add to that array + `MOOD_EMOJI` + `MOOD_COLOR` to introduce a new expression.
 
@@ -203,6 +211,14 @@ This regenerates everything in `src-tauri/icons/`.
 **Window is blank** — open devtools (right-click → Inspect) and check the console. Most blank-screen issues are TS/import errors in `src/`.
 
 **Japanese looks like boxes** — system is missing Japanese fonts. On Windows, install "Japanese Supplemental Fonts" via Settings → Apps → Optional features.
+
+**Mic button does nothing / errors immediately** — the webview's `webkitSpeechRecognition` likely isn't reachable from inside WebView2. Fallback options (whisper.cpp, etc.) are tracked in [`docs/todo.md`](docs/todo.md).
+
+---
+
+## What's not built yet
+
+See [`docs/todo.md`](docs/todo.md) for the full roadmap. Big-ticket items: VOICEVOX TTS (her actual voice), real sprite art per mood, full VN scene/background system, furigana toggle, settings UI, long-term memory.
 
 ---
 

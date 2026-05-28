@@ -7,13 +7,24 @@ import {
   type ChatMessage,
   type OllamaConfig,
 } from "../lib/ollama";
-import { parseAffectionDelta, parseMood, type Mood } from "../lib/moods";
+import {
+  parseAffectionDelta,
+  parseBilingual,
+  parseMood,
+  type Mood,
+} from "../lib/moods";
+import {
+  isSpeechSupported,
+  startRecognition,
+  type Recorder,
+} from "../lib/speech";
 import { Portrait } from "./Portrait";
 import { AffectionMeter } from "./AffectionMeter";
 
 type Turn = {
   role: "user" | "assistant";
-  content: string;
+  ja: string;
+  en?: string;
   mood?: Mood;
   choices?: string[];
 };
@@ -24,12 +35,20 @@ type Props = {
 };
 
 const STORAGE_KEY = "misato.session";
+const PREFS_KEY = "misato.prefs";
 
 type Persisted = {
   mode: Mode;
   turns: Turn[];
   affection: number;
 };
+
+type Prefs = {
+  showEn: boolean;
+  micLang: "ja-JP" | "en-US";
+};
+
+const DEFAULT_PREFS: Prefs = { showEn: true, micLang: "ja-JP" };
 
 function loadSession(mode: Mode): Persisted {
   try {
@@ -52,6 +71,24 @@ function saveSession(p: Persisted) {
   }
 }
 
+function loadPrefs(): Prefs {
+  try {
+    const raw = localStorage.getItem(PREFS_KEY);
+    if (raw) return { ...DEFAULT_PREFS, ...JSON.parse(raw) };
+  } catch {
+    // ignore
+  }
+  return DEFAULT_PREFS;
+}
+
+function savePrefs(p: Prefs) {
+  try {
+    localStorage.setItem(PREFS_KEY, JSON.stringify(p));
+  } catch {
+    // ignore
+  }
+}
+
 function parseChoices(text: string): { choices: string[]; clean: string } {
   const choices: string[] = [];
   const clean = text
@@ -69,6 +106,22 @@ function parseChoices(text: string): { choices: string[]; clean: string } {
   return { choices, clean };
 }
 
+function parseAssistant(raw: string): {
+  mood: Mood;
+  delta: number;
+  ja: string;
+  en: string;
+  choices: string[];
+} {
+  const { mood, clean: a1 } = parseMood(raw);
+  const { delta, clean: a2 } = parseAffectionDelta(a1);
+  const { choices, clean: a3 } = parseChoices(a2);
+  const { ja, en } = parseBilingual(a3);
+  // Fallback: if persona didn't emit [ja]/[en] tags, treat whole text as JA.
+  const finalJa = ja || a3;
+  return { mood, delta, ja: finalJa, en, choices };
+}
+
 function buildStateLine(mode: Mode, affection: number): string | undefined {
   if (mode === "freeform") return undefined;
   if (mode === "affection") return `affection: ${affection}/100`;
@@ -84,12 +137,21 @@ export function Chat({ mode, onExit }: Props) {
   const [streaming, setStreaming] = useState(false);
   const [config] = useState<OllamaConfig>(DEFAULT_CONFIG);
   const [error, setError] = useState<string | null>(null);
+  const [prefs, setPrefs] = useState<Prefs>(() => loadPrefs());
+  const [listening, setListening] = useState(false);
+  const [interim, setInterim] = useState("");
   const abortRef = useRef<AbortController | null>(null);
+  const recRef = useRef<Recorder | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const speechAvailable = isSpeechSupported();
 
   useEffect(() => {
     saveSession({ mode, turns, affection });
   }, [mode, turns, affection]);
+
+  useEffect(() => {
+    savePrefs(prefs);
+  }, [prefs]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({
@@ -104,7 +166,7 @@ export function Chat({ mode, onExit }: Props) {
   async function send(text: string) {
     if (!text.trim() || streaming) return;
     setError(null);
-    const userTurn: Turn = { role: "user", content: text };
+    const userTurn: Turn = { role: "user", ja: text };
     const nextTurns = [...turns, userTurn];
     setTurns(nextTurns);
     setInput("");
@@ -114,9 +176,10 @@ export function Chat({ mode, onExit }: Props) {
       role: "system",
       content: systemPromptFor(mode, buildStateLine(mode, affection)),
     };
+    // Build LLM-facing history from displayed ja text (assistant) / user text.
     const history: ChatMessage[] = nextTurns.map((t) => ({
       role: t.role,
-      content: t.content,
+      content: t.ja,
     }));
 
     const ctrl = new AbortController();
@@ -126,17 +189,16 @@ export function Chat({ mode, onExit }: Props) {
     try {
       for await (const chunk of streamChat(config, [sys, ...history], ctrl.signal)) {
         acc += chunk;
-        const { mood, clean: afterMood } = parseMood(acc);
-        const { clean: afterAffection } = parseAffectionDelta(afterMood);
-        const { choices, clean } = parseChoices(afterAffection);
+        const parsed = parseAssistant(acc);
         setTurns((prev) => {
           const copy = [...prev];
           const last = copy[copy.length - 1];
           const aTurn: Turn = {
             role: "assistant",
-            content: clean,
-            mood,
-            choices: choices.length ? choices : undefined,
+            ja: parsed.ja,
+            en: parsed.en || undefined,
+            mood: parsed.mood,
+            choices: parsed.choices.length ? parsed.choices : undefined,
           };
           if (last && last.role === "assistant") {
             copy[copy.length - 1] = aTurn;
@@ -147,8 +209,7 @@ export function Chat({ mode, onExit }: Props) {
         });
       }
 
-      // Final pass: apply affection delta from full accumulated text.
-      const { delta } = parseAffectionDelta(acc);
+      const { delta } = parseAssistant(acc);
       if (delta !== 0 && (mode === "affection" || mode === "vn")) {
         setAffection((a) => Math.max(0, Math.min(100, a + delta)));
       }
@@ -168,7 +229,38 @@ export function Chat({ mode, onExit }: Props) {
     localStorage.removeItem(STORAGE_KEY);
   }
 
+  function toggleMic() {
+    if (listening) {
+      recRef.current?.stop();
+      return;
+    }
+    setInterim("");
+    setError(null);
+    const r = startRecognition(prefs.micLang, {
+      onInterim: (t) => setInterim(t),
+      onFinal: (t) => {
+        setInput((cur) => (cur ? cur + " " + t : t));
+        setInterim("");
+      },
+      onError: (e) => {
+        setError(`mic: ${e}`);
+        setInterim("");
+        setListening(false);
+      },
+      onEnd: () => {
+        setListening(false);
+        setInterim("");
+        recRef.current = null;
+      },
+    });
+    if (r) {
+      recRef.current = r;
+      setListening(true);
+    }
+  }
+
   const lastAssistant = [...turns].reverse().find((t) => t.role === "assistant");
+  const composerValue = listening && interim ? input + (input ? " " : "") + interim : input;
 
   return (
     <div className="chat-screen">
@@ -177,12 +269,42 @@ export function Chat({ mode, onExit }: Props) {
         {(mode === "affection" || mode === "vn") && (
           <AffectionMeter value={affection} />
         )}
+        <div className="prefs">
+          <label className="pref-row">
+            <input
+              type="checkbox"
+              checked={prefs.showEn}
+              onChange={(e) =>
+                setPrefs((p) => ({ ...p, showEn: e.target.checked }))
+              }
+            />
+            <span>Show English subtitles</span>
+          </label>
+          {speechAvailable && (
+            <label className="pref-row">
+              <span>Mic language</span>
+              <select
+                value={prefs.micLang}
+                onChange={(e) =>
+                  setPrefs((p) => ({
+                    ...p,
+                    micLang: e.target.value as Prefs["micLang"],
+                  }))
+                }
+              >
+                <option value="ja-JP">日本語</option>
+                <option value="en-US">English</option>
+              </select>
+            </label>
+          )}
+        </div>
         <div className="side-buttons">
           <button onClick={onExit}>← Modes</button>
           <button onClick={reset}>Reset</button>
         </div>
         <div className="model-info">
           model: {config.model}
+          {!speechAvailable && <div>mic: not available in this webview</div>}
         </div>
       </div>
       <div className="chat">
@@ -197,7 +319,10 @@ export function Chat({ mode, onExit }: Props) {
               {t.role === "assistant" && t.mood && (
                 <span className="bubble-mood">[{t.mood}]</span>
               )}
-              <div className="bubble-text">{t.content || "…"}</div>
+              <div className="bubble-ja">{t.ja || "…"}</div>
+              {t.role === "assistant" && t.en && prefs.showEn && (
+                <div className="bubble-en">{t.en}</div>
+              )}
             </div>
           ))}
           {error && <div className="error">⚠ {error}</div>}
@@ -218,11 +343,29 @@ export function Chat({ mode, onExit }: Props) {
             send(input);
           }}
         >
+          {speechAvailable && (
+            <button
+              type="button"
+              className={`mic ${listening ? "mic-on" : ""}`}
+              onClick={toggleMic}
+              disabled={streaming}
+              title={listening ? "Stop listening" : "Speak"}
+              aria-label="Toggle microphone"
+            >
+              {listening ? "● rec" : "🎙"}
+            </button>
+          )}
           <input
             type="text"
-            value={input}
+            value={composerValue}
             onChange={(e) => setInput(e.target.value)}
-            placeholder={streaming ? "..." : "メッセージを入力 / type a message"}
+            placeholder={
+              streaming
+                ? "..."
+                : listening
+                  ? "聞いてるよ… / listening…"
+                  : "メッセージを入力 / type a message"
+            }
             disabled={streaming}
             autoFocus
           />

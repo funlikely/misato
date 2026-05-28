@@ -254,6 +254,22 @@ input[type="text"]:focus {
   letter-spacing: 0.1em;
   margin-right: 8px;
 }
+.bubble-ja {
+  font-size: 16px;
+  line-height: 1.65;
+}
+.bubble.user .bubble-ja {
+  font-size: 15px;
+}
+.bubble-en {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.12);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--fg-dim);
+  font-style: italic;
+}
 .error {
   color: var(--danger);
   font-size: 13px;
@@ -292,4 +308,51 @@ input[type="text"]:focus {
 .composer .cancel {
   border-color: var(--danger);
   color: var(--danger);
+}
+.mic {
+  width: 44px;
+  padding: 0;
+  font-size: 16px;
+}
+.mic-on {
+  border-color: var(--danger);
+  color: var(--danger);
+  animation: micpulse 1.2s ease-in-out infinite;
+}
+@keyframes micpulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(255, 107, 107, 0.6);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(255, 107, 107, 0);
+  }
+}
+
+.prefs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--fg-dim);
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.pref-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+}
+.pref-row input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+.pref-row select {
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 6px;
+  font: inherit;
+  font-size: 12px;
 }
