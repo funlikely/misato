@@ -11,7 +11,7 @@ export type OllamaConfig = {
 
 export const DEFAULT_CONFIG: OllamaConfig = {
   host: "http://localhost:11434",
-  model: "qwen2.5:7b",
+  model: "lucas2024/llama-3-elyza-jp-8b:q5_k_m",
   temperature: 0.85,
 };
 
