@@ -1,0 +1,295 @@
+:root {
+  --bg: #0e0f1a;
+  --bg-2: #161827;
+  --fg: #e9eaf3;
+  --fg-dim: #9aa0b4;
+  --accent: #ff6fa5;
+  --accent-2: #c77dff;
+  --border: #2a2d44;
+  --danger: #ff6b6b;
+  font-family: "Hiragino Sans", "Yu Gothic", "Meiryo", "Segoe UI", -apple-system,
+    system-ui, sans-serif;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+  background: var(--bg-2);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 14px;
+  transition: border-color 0.15s, background 0.15s;
+}
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+input[type="text"] {
+  font: inherit;
+  background: var(--bg-2);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 14px;
+  outline: none;
+}
+input[type="text"]:focus {
+  border-color: var(--accent);
+}
+
+/* Mode picker */
+.mode-picker {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  gap: 30px;
+}
+.title {
+  font-size: 56px;
+  margin: 0;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  letter-spacing: 0.1em;
+}
+.title-sub {
+  font-size: 18px;
+  color: var(--fg-dim);
+  letter-spacing: normal;
+  -webkit-text-fill-color: var(--fg-dim);
+}
+.mode-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  max-width: 900px;
+  width: 100%;
+}
+.mode-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 22px;
+  text-align: left;
+  min-height: 130px;
+}
+.mode-card-title {
+  font-weight: 600;
+  font-size: 18px;
+}
+.mode-card-desc {
+  font-size: 13px;
+  color: var(--fg-dim);
+  line-height: 1.5;
+}
+
+/* Chat screen */
+.chat-screen {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  height: 100vh;
+  gap: 0;
+}
+.side {
+  background: var(--bg-2);
+  border-right: 1px solid var(--border);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.side-buttons {
+  display: flex;
+  gap: 8px;
+}
+.side-buttons button {
+  flex: 1;
+  font-size: 13px;
+  padding: 6px 10px;
+}
+.model-info {
+  font-size: 11px;
+  color: var(--fg-dim);
+  margin-top: auto;
+}
+
+.portrait {
+  display: flex;
+  justify-content: center;
+}
+.portrait-frame {
+  position: relative;
+  width: 200px;
+  height: 240px;
+  border: 2px solid var(--accent);
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.4s, background 0.4s;
+}
+.portrait.speaking .portrait-frame {
+  box-shadow: 0 0 20px var(--accent);
+}
+.portrait-emoji {
+  font-size: 88px;
+  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.5));
+}
+.portrait-name {
+  margin-top: 8px;
+  font-size: 22px;
+  letter-spacing: 0.15em;
+}
+.portrait-mood {
+  position: absolute;
+  bottom: 10px;
+  font-size: 11px;
+  color: var(--fg-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+}
+
+/* Affection meter */
+.affection {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+}
+.affection-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+.affection-value {
+  color: var(--accent);
+  font-weight: 600;
+}
+.affection-bar {
+  background: var(--bg-2);
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.affection-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  transition: width 0.5s ease;
+}
+.affection-state {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--fg-dim);
+  text-align: right;
+}
+
+/* Chat panel */
+.chat {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+.transcript {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.placeholder {
+  color: var(--fg-dim);
+  text-align: center;
+  margin-top: 40px;
+  font-size: 14px;
+}
+.bubble {
+  max-width: 75%;
+  padding: 10px 14px;
+  border-radius: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+.bubble.user {
+  align-self: flex-end;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: white;
+}
+.bubble.assistant {
+  align-self: flex-start;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+}
+.bubble-mood {
+  font-size: 10px;
+  color: var(--fg-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-right: 8px;
+}
+.error {
+  color: var(--danger);
+  font-size: 13px;
+  padding: 8px 12px;
+  border: 1px solid var(--danger);
+  border-radius: 8px;
+  background: rgba(255, 107, 107, 0.05);
+}
+
+.choices {
+  display: flex;
+  gap: 8px;
+  padding: 0 20px 8px;
+  flex-wrap: wrap;
+}
+.choice {
+  background: transparent;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-size: 13px;
+}
+.choice:hover {
+  background: rgba(255, 111, 165, 0.1);
+}
+
+.composer {
+  display: flex;
+  gap: 8px;
+  padding: 16px 20px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-2);
+}
+.composer input {
+  flex: 1;
+}
+.composer .cancel {
+  border-color: var(--danger);
+  color: var(--danger);
+}

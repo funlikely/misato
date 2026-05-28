@@ -1,0 +1,18 @@
+[package]
+name = "misato"
+version = "0.1.0"
+description = "Misato — Japanese dating sim chatbot"
+authors = ["funlikely"]
+edition = "2021"
+
+[lib]
+name = "misato_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
