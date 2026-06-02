@@ -23,6 +23,9 @@ You pick a mode on launch and can switch back anytime.
 ### 1. Install prerequisites (Windows)
 
 ```powershell
+# Node.js LTS (frontend tooling — needs Node 18+, tested on 22)
+winget install --id OpenJS.NodeJS.LTS -e
+
 # Rust toolchain (for Tauri)
 winget install --id Rustlang.Rustup -e
 
@@ -33,13 +36,21 @@ winget install --id Microsoft.VisualStudio.2022.BuildTools -e --override "--add 
 winget install --id Ollama.Ollama -e
 ```
 
-Open a fresh shell so PATH picks up the new tools, then pull a Japanese-capable model:
+Open a fresh shell so PATH picks up the new tools, then pull the default model:
 
 ```powershell
-ollama pull qwen2.5:7b
+ollama pull lucas2024/llama-3-elyza-jp-8b:q5_k_m
 ```
 
-`qwen2.5:7b` is a good default — handles Japanese well, runs on modest hardware. If you have a beefy GPU, `qwen2.5:14b` is noticeably better; edit `DEFAULT_CONFIG.model` in `src/lib/ollama.ts`.
+This is ELYZA's Japanese fine-tune of Llama 3 — it handles natural casual Japanese well and, unlike some general models, doesn't leak Chinese characters. It runs on modest hardware. To use a different model, edit `DEFAULT_CONFIG.model` in `src/lib/ollama.ts` (see [Switching models](#switching-models)).
+
+### 1b. Install VOICEVOX (for her voice)
+
+Misato speaks her Japanese lines aloud via [VOICEVOX](https://voicevox.hiroshiba.jp/), a free local TTS engine. **The app works without it** (text only), but for voice you need to download and run VOICEVOX separately — it's not a `winget` package:
+
+1. Download the VOICEVOX installer from <https://voicevox.hiroshiba.jp/> (the CPU build is fine; a GPU build is faster).
+2. Launch the VOICEVOX app. It serves a local engine on `http://localhost:50021`.
+3. Keep it open while using Misato. The sidebar shows the engine status; if it reads "VOICEVOX not running," the app is closed or still starting.
 
 ### 2. Install JS dependencies
 
@@ -152,14 +163,15 @@ Edit `DEFAULT_CONFIG` in `src/lib/ollama.ts`:
 ```ts
 export const DEFAULT_CONFIG: OllamaConfig = {
   host: "http://localhost:11434",
-  model: "qwen2.5:14b",       // ← change this
+  model: "lucas2024/llama-3-elyza-jp-8b:q5_k_m",   // ← change this
   temperature: 0.85,
 };
 ```
 
 Any Ollama model that handles Japanese works. Candidates worth trying:
 
-- `qwen2.5:7b` / `qwen2.5:14b` — Alibaba, strong JP, default
+- `lucas2024/llama-3-elyza-jp-8b:q5_k_m` — ELYZA's Llama-3 JP fine-tune, strong natural JP, no Chinese-script bleed, **default**
+- `qwen2.5:7b` / `qwen2.5:14b` — Alibaba, strong JP (can occasionally leak Chinese characters)
 - `gemma2:9b` — Google, decent JP
 - `llama3.1:8b` — okay JP, very permissive personality
 
@@ -212,13 +224,17 @@ This regenerates everything in `src-tauri/icons/`.
 
 **Japanese looks like boxes** — system is missing Japanese fonts. On Windows, install "Japanese Supplemental Fonts" via Settings → Apps → Optional features.
 
+**No voice / sidebar says "VOICEVOX not running"** — the VOICEVOX app isn't open. Launch it and confirm `curl http://localhost:50021/version` responds. The app falls back to text-only until the engine is reachable. See [step 1b](#1b-install-voicevox-for-her-voice).
+
 **Mic button does nothing / errors immediately** — the webview's `webkitSpeechRecognition` likely isn't reachable from inside WebView2. Fallback options (whisper.cpp, etc.) are tracked in [`docs/todo.md`](docs/todo.md).
 
 ---
 
 ## What's not built yet
 
-See [`docs/todo.md`](docs/todo.md) for the full roadmap. Big-ticket items: VOICEVOX TTS (her actual voice), real sprite art per mood, full VN scene/background system, furigana toggle, settings UI, long-term memory.
+See [`docs/todo.md`](docs/todo.md) for the full roadmap. Big-ticket items: real sprite art per mood (via the sibling [booru-auto-tagger](https://github.com/funlikely/booru-auto-tagger) repo), full VN scene/background system, furigana toggle, settings UI, long-term memory.
+
+(Already shipped in v1.0.0: VOICEVOX TTS, Web Speech mic input, bilingual subtitles with fallback translation.)
 
 ---
 
